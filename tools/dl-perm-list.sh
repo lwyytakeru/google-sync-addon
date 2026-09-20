@@ -20,19 +20,19 @@
 #region
 readonly SCRIPT_NAME='AOSP system permissions downloader'
 readonly SCRIPT_SHORTNAME='SysPermDl'
-readonly SCRIPT_VERSION='0.3.22'
+readonly SCRIPT_VERSION='0.3.24'
 readonly SCRIPT_AUTHOR='ale5000'
 readonly SCRIPT_YEAR='2025'
-
-readonly MAX_API=37
-readonly PERMS_DATA_PREFIX='base-permissions-api'
-readonly BASE_URL='https://android.googlesource.com/platform/frameworks/base/'
 
 readonly EX_USAGE=64
 readonly EX_UNAVAILABLE=69
 readonly EX_SOFTWARE=70
 readonly EX_TEMPFAIL=75
 readonly EX_CONFIG=78
+
+readonly MAX_API=37
+readonly PERMS_DATA_PREFIX='base-permissions-api'
+readonly BASE_URL='https://android.googlesource.com/platform/frameworks/base/'
 
 # shellcheck disable=SC2034
 {
@@ -110,23 +110,27 @@ color_init()
     CLR_CYAN='\033[1;36m'
     CLR_LINE='\r        \r'
   fi
+  return 0
 }
 
 log_scope_init()
 {
   LOG_LEVEL=0
+  return 0
 }
 
 # shellcheck disable=SC2329 # NOTE: Standard boilerplate function; may not be executed in this specific script
 log_scope_begin()
 {
   LOG_LEVEL="$((LOG_LEVEL + 2))"
+  return 0
 }
 
 # shellcheck disable=SC2329 # NOTE: Standard boilerplate function; may not be executed in this specific script
 log_scope_end()
 {
   test "${LOG_LEVEL}" -lt 2 || LOG_LEVEL="$((LOG_LEVEL - 2))"
+  return 0
 }
 
 log_empty_line()
@@ -177,48 +181,25 @@ pause_if_needed()
 
 # @section STORAGE & DIRECTORY FUNCTIONS ----
 #region
-find_data_dir()
+resolve_data_dir()
 {
-  local _path
+  local __fn_path=''
 
-  # shellcheck disable=SC3028 # Ignore: In POSIX sh, BASH_SOURCE is undefined
-  if test -n "${TOOLS_DATA_DIR-}" && _path="${TOOLS_DATA_DIR:?}" && test -d "${_path:?}"; then
+  # shellcheck disable=SC3028,SC2128 # IGNORE: In POSIX sh, BASH_SOURCE is undefined / Expanding an array without an index only gives the first element
+  if test -n "${TOOLS_DATA_DIR-}" && __fn_path="${TOOLS_DATA_DIR}"; then
     :
-  elif test -n "${BASH_SOURCE-}" && _path="$(dirname "${BASH_SOURCE:?}")/data" && test -d "${_path:?}"; then
-    : # It is expected: expanding an array without an index gives the first element
-  elif test -n "${0-}" && _path="$(dirname "${0:?}")/data" && test -d "${_path:?}"; then
+  elif test -n "${BASH_SOURCE-}" && test -f "${BASH_SOURCE}" && __fn_path="$(dirname "${BASH_SOURCE}")/data"; then
+    : # NOTE: Index omitted intentionally; we explicitly want the first element only
+  elif test -n "${0-}" && test -f "${0}" && __fn_path="$(dirname "${0}")/data"; then
     :
-  elif _path='./data' && test -d "${_path:?}"; then
+  elif __fn_path='./data'; then
     :
   else
     return 1
   fi
 
-  _path="$(realpath 2> /dev/null "${_path:?}" || readlink -f "${_path:?}")" || return 3
-  printf '%s\n' "${_path:?}"
-}
-
-create_and_return_data_dir()
-{
-  local _path
-
-  # shellcheck disable=SC3028 # Ignore: In POSIX sh, BASH_SOURCE is undefined
-  if test -n "${TOOLS_DATA_DIR-}" && _path="${TOOLS_DATA_DIR:?}"; then
-    :
-  elif test -n "${BASH_SOURCE-}" && test -f "${BASH_SOURCE:?}" && _path="$(dirname "${BASH_SOURCE:?}")/data"; then
-    : # It is expected: expanding an array without an index gives the first element
-  elif test -n "${0-}" && test -f "${0:?}" && _path="$(dirname "${0:?}")/data"; then
-    :
-  elif _path='./data'; then
-    :
-  else
-    return 1
-  fi
-
-  test -d "${_path:?}" || mkdir -p -- "${_path:?}" || return 1
-
-  _path="$(realpath 2> /dev/null "${_path:?}" || readlink -f "${_path:?}")" || return 1
-  printf '%s\n' "${_path:?}"
+  __fn_path="$(realpath 2> /dev/null "${__fn_path:?}" || readlink -f "${__fn_path:?}")" || return 3
+  printf '%s\n' "${__fn_path:?}"
 }
 
 clean_perms_dir_if_empty()
@@ -233,7 +214,7 @@ clean_perms_dir_if_empty()
 #region
 dl()
 {
-  "${WGET_CMD:?}" -q -O "${2:?}" -U "${DL_UA:?}" --header "${DL_ACCEPT_HEADER:?}" --header "${DL_ACCEPT_LANG_HEADER:?}" --no-cache -- "${1:?}" || return "${?}"
+  "${WGET_CMD:?}" -q -t 1 -O "${2:?}" -U "${DL_UA:?}" --header "${DL_ACCEPT_HEADER:?}" --header "${DL_ACCEPT_LANG_HEADER:?}" -- "${1:?}" || return "${?}"
 }
 
 fetch_and_extract_manifest_permissions()
@@ -302,7 +283,7 @@ main()
       ;;
     *)
       if test "${REQUEST_DELAY%.*}" != "${REQUEST_DELAY}"; then
-        sleep '0.01' 1> /dev/null 2>&1 || {
+        sleep '0.01' 2> /dev/null 1>&2 || {
           REQUEST_DELAY="$((${REQUEST_DELAY%.*} + 1))" || return 20
           log_warn "System sleep does NOT support decimals. Rounding up REQUEST_DELAY to: '${REQUEST_DELAY}'"
         }
@@ -323,20 +304,18 @@ main()
     return "${EX_UNAVAILABLE?}"
   }
 
-  if DATA_DIR="$(find_data_dir || create_and_return_data_dir)"; then
+  if DATA_DIR="$(resolve_data_dir)" && mkdir -p -- "${DATA_DIR}/perms"; then
     :
   else
     log_err 'Unable to create the required data directory'
     return "${EX_CONFIG?}"
   fi
 
-  test -d "${DATA_DIR:?}/perms" || mkdir -p -- "${DATA_DIR:?}/perms" || return 3
-
   log_empty_line
   log_output 'Downloading...'
   log_scope_begin
-  rm -f -- "${DATA_DIR:?}/perms/.completed" || return 4
-  rm -f -- "${DATA_DIR:?}/perms/${PERMS_DATA_PREFIX:?}"-*.xml || return 5
+  rm -f -- "${DATA_DIR:?}/perms/.completed" || return 20
+  rm -f -- "${DATA_DIR:?}/perms/${PERMS_DATA_PREFIX:?}"-*.xml || return 21
 
   for api in $(seq -- 23 "${MAX_API:?}"); do
     tag="$(eval " printf '%s\n' \"\${TAG_API_${api}?}\" ")" || {
@@ -347,14 +326,14 @@ main()
     log_scope_begin
     fetch_and_extract_manifest_permissions_with_retry "${api:?}" "${tag:?}" || {
       log_err "Failed to download (or parse) API ${api?} XML"
-      rm -f -- "${DATA_DIR?}/perms/${PERMS_DATA_PREFIX?}-${api?}.xml" || :
+      rm -f -- "${DATA_DIR:?}/perms/${PERMS_DATA_PREFIX:?}-${api:?}.xml" || :
       return "${EX_TEMPFAIL?}"
     }
     log_scope_end
-    sleep "${REQUEST_DELAY:?}" || return 6
+    sleep "${REQUEST_DELAY:?}" || return 22
   done
 
-  touch -- "${DATA_DIR?}/perms/.completed" || return 7
+  touch -- "${DATA_DIR?}/perms/.completed" || return 23
   log_scope_end
   log_output 'Done.'
 }

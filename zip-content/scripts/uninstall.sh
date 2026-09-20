@@ -1,6 +1,8 @@
 #!/sbin/sh
 # SPDX-FileCopyrightText: 2016 ale5000
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-or-later WITH LicenseRef-Archive-packaging-exception
+
+# shellcheck enable=all
 
 list_app_data_to_remove()
 {
@@ -27,6 +29,10 @@ EOF
 }
 
 if test "${IS_INCLUDED:-false}" = 'false'; then
+  set -u 2> /dev/null || :
+  # shellcheck disable=SC3040 # IGNORE: In POSIX sh, set option pipefail is undefined
+  case "$(set -o 2> /dev/null || set || :)" in *'pipefail'*) set -o pipefail || echo 1>&2 'ERROR: pipefail failed' ;; *) echo 1>&2 'WARNING: pipefail not supported' ;; esac
+
   ui_error()
   {
     printf 1>&2 '\033[1;31m%s\033[0m\n' "ERROR: ${1?}"
